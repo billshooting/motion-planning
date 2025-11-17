@@ -1,9 +1,16 @@
 import os
+import math
+from collections import deque
+import random
+
+import numpy as np
 
 class MapLoader:
     def __init__(self, maps_folder = "maps"):
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.maps_dir = os.path.join(self.base_dir, maps_folder)
+        self.connections = []
+        self.conn_size = {}
 
         if not os.path.exists(self.maps_dir):
             raise FileNotFoundError(f"Maps folder not found: {self.maps_dir}")
@@ -31,12 +38,11 @@ class MapLoader:
 
 
     def to_occupancy(self, grid):
-        """
-        Convert character grid to 0 = free, 1 = obstacle.
-        """
         occ = []
         for row in grid:
-            occ.append([1 if c in ['@', 'T'] else 0 for c in row])
+            occ.append([1 if c in ['@', 'T', 'W'] else 0 for c in row])
+
+        self.connections, self.conn_size = self.compute_connected_components(occ)
         return occ
     
     def list_maps(self):
@@ -48,25 +54,68 @@ class MapLoader:
             maps[name] = self.load(name)
         return maps
     
-    def get_start_goal(self, occ):
+    def compute_connected_components(self, occ):
+        h, w = len(occ), len(occ[0])
+        comp = [[-1]*w for _ in range(h)]
+        comp_sizes = {}
+        comp_id = 0
+
+        for y in range(h):
+            for x in range(w):
+                if occ[y][x] == 0 and comp[y][x] == -1:
+                    q = deque([(x, y)])
+                    comp[y][x] = comp_id
+                    comp_sizes[comp_id] = 1
+
+                    while q:
+                        cx, cy = q.popleft()
+                        for dx, dy in [(1,0),(-1,0),(0,1),(0,-1)]:
+                            nx, ny = cx + dx, cy + dy
+                            if 0 <= nx < w and 0 <= ny < h:
+                                if occ[ny][nx] == 0 and comp[ny][nx] == -1:
+                                    comp[ny][nx] = comp_id
+                                    comp_sizes[comp_id] += 1
+                                    q.append((nx, ny))
+                    comp_id += 1
+
+        return comp, comp_sizes
+    
+    def reachable(self, a, b):
+        self.connections[a[1]][a[0]] == self.connections[b[1]][b[0]]
+    
+    def get_start_goal(self, occ, quantile = 0.95):
         h = len(occ)
         w = len(occ[0])
 
-        # Gather all free cells
-        free = [(x, y) for y in range(h) for x in range(w) if occ[y][x] == 0]
+        connections = self.connections
+        conn_size = self.conn_size
 
-        if len(free) < 2:
-            raise ValueError("Map does not contain enough free cells!")
+        # Identify largest CC
+        largest_cc = max(conn_size.keys(), key=lambda cid: conn_size[cid])
+        print(f"Largest CC = {largest_cc}, size = {conn_size[largest_cc]}")
 
-        p = free[0]
+        # Collect all points in largest CC
+        main_free = [(x, y) for y in range(h) for x in range(w) if connections[y][x] == largest_cc]
 
-        # Squared distance
-        def d2(a, b):
-            return (a[0]-b[0])**2 + (a[1]-b[1])**2
 
-        q = max(free, key=lambda c: d2(c, p))
+        p = random.choice(main_free)
+        reachable_points = main_free
+        print(f"The reachable area has {len(reachable_points)} points")
 
-        r = max(free, key=lambda c: d2(c, q))
+        # Compute distances from anchor
+        dists = [math.sqrt((x - p[0])**2 + (y - p[1])**2) for (x, y) in reachable_points]
+        threshold = np.quantile(dists, quantile)
 
-        return q, r
+        candidates = [c for c, d in zip(reachable_points, dists) if d >= threshold]
+
+        if len(candidates) == 0:
+            raise RuntimeError("No candidates found; try smaller quantile.")
+
+        # Pick a goal far away
+        goal = random.choice(candidates)
+
+        # Pick a start close to p
+        start = p
+
+        return start, goal
     

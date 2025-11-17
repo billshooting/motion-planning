@@ -1,7 +1,6 @@
 import heapq
 import time
 import math
-# from load_map import MapLoader
 
 class AStar:
     def __init__(self, occ_grid):
@@ -13,12 +12,30 @@ class AStar:
         return math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
     
     def get_neighbors(self, node):
-        x,y = node
-        moves = [(-1,0),(1,0),(0,-1),(0,1),(-1,-1),(-1,1),(1,-1),(1,1)]
-        for dx,dy in moves:
-            nx, ny = x+dx, y+dy
-            if 0 <= nx < self.w and 0 <= ny < self.h and self.grid[nx, ny] == 0:
-                yield (nx,ny), math.sqrt(dx**2, dy**2)
+        x, y = node
+        moves = [(-1,0),(1,0),(0,-1),(0,1),
+                (-1,-1),(-1,1),(1,-1),(1,1)]
+
+        for dx, dy in moves:
+            nx, ny = x + dx, y + dy
+
+            # bounds check
+            if not (0 <= nx < self.w and 0 <= ny < self.h):
+                continue
+
+            # obstacle check
+            if self.grid[ny][nx] == 1:
+                continue
+
+            # diagonal corner-cut check
+            if dx != 0 and dy != 0:
+                if self.grid[y][nx] == 1 or self.grid[ny][x] == 1:
+                    continue
+
+            # cost
+            cost = math.hypot(dx, dy)
+
+            yield (nx, ny), cost
 
     def reconstruct(self, came_from, start, goal):
         path = []
@@ -92,7 +109,7 @@ class AStar:
                     "success": True,
                     "path": path,
                     "path_length": path_len,
-                    "time": planning_time,
+                    "time": planning_time * 1000,
                     "expanded": nodes_expanded,
                     "smoothness": smoothness
                 }
@@ -110,7 +127,7 @@ class AStar:
             "success": False,
             "path": None,
             "path_length": math.inf,
-            "time": time.time() - t0,
+            "time": (time.time() - t0) * 1000,
             "expanded": nodes_expanded,
             "smoothness": math.inf
         }
